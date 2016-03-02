@@ -1,0 +1,178 @@
+/*
+ * simpleRPM.c
+ *
+ * Created: 2016-01-02 오후 3:58:50
+ * Author : sela
+ */ 
+
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#define F_CPU     8000000L
+#include <util/delay.h>
+
+#include "7seg.h"
+
+#define OPEN_H (255*3/4 + 5)  // 60-70
+#define OPEN_L (255*3/4 - 5)
+#define SW1_H (255*2/3 + 5)   // 80-90
+#define SW1_L (255*2/3 - 5)
+#define SW2_H (255/2 + 5)   // 122-132
+#define SW2_L (255/2 - 5)
+#define SW3_H (0 + 5)
+#define SW3_L (0)
+#define PULSES_PER_REV 12
+
+enum key_s{
+	KEY_OPEN,
+	KEY_START,
+	KEY_STOP,
+	KEY_REVERSE
+};
+
+enum motor_s{
+	MOTOR_STOP,
+	MOTOR_RUN
+};
+
+uint8_t adc_read(uint8_t channel);
+void setup_motor(uint8_t state, uint8_t speed, uint8_t direction);
+extern uint32_t get_millies(void);
+
+extern volatile uint8_t pulses;
+extern volatile uint32_t stop_cnt;
+
+int main(void)
+{
+	uint8_t speed = 0;
+	uint8_t direction = 0; // 0: normal, 1: reverse
+	uint8_t value;
+	uint16_t disp_value;
+	uint32_t millies;
+	uint32_t old_millies = 0;
+	uint8_t key_state = KEY_OPEN;
+	uint8_t motor_state = MOTOR_STOP;
+		
+	DDRB = 0xff;
+	DDRD = (1<<PD1)|(1<<PD3)|(1<<PD4)|(1<<PD7)|(1<<PD5);
+	
+	// set timer0 for 7seg
+	// CTC mode
+	TCCR0A = (1<<WGM01);
+	// clk source, pwm freq = 8MHz/(8*256) = 3.9kHz
+	TCCR0B = (1<<CS01);
+	// output compare value for 100us
+	OCR0A = 100;  // 10kHz
+	
+	// set timer2 for pwm
+	// Fast PWM mode, Clear OC0A,B on Compare Match, set OC0A,B at 0xff
+	TCCR2A = (1<<COM0A1)|(1<<COM0B1)|(1<<WGM01)|(1<<WGM00);
+	// clk source, pwm freq = 8MHz/(8*256) = 3.9kHz
+	TCCR2B = (1<<CS21);
+
+	OCR2A = 0;  
+	OCR2B = 0;  
+		
+	TIMSK0 |= (1<<OCIE0A);
+	
+	// AVcc with ext. cap at AREF, use ADC0 input
+	ADMUX = (1<<REFS0)|(1<<ADLAR);
+	// ADC Enable, ADC start Conversion, prescaler 8M/64 = 125kHz
+	ADCSRA = (1<<ADEN)|(1<<ADPS2)|(1<<ADPS1);
+	// Disable unused ADC input
+	DIDR0 = (1<<ADC5D)|(1<<ADC4D)|(1<<ADC3D)|(1<<ADC2D);
+	
+	EICRA = (1<<ISC01); // int0, falling-edge interrupt
+	EIMSK = (1<<INT0); // int0 enabled
+		
+	sei();
+	
+	while (1)
+	{
+		speed = adc_read(ADC0D);
+		//_delay_ms(1);			
+		value = adc_read(ADC1D);
+		
+		if((value<=SW1_H)&&(value>=SW1_L)) //check sw1 - start
+		{
+			if(key_state == KEY_OPEN)
+				motor_state = MOTOR_RUN;
+			key_state = KEY_START;
+			//_delay_ms(20);			
+		}
+		else if((value<=SW2_H)&&(value>=SW2_L)) //check sw2 - stop
+		{
+			if(key_state == KEY_OPEN)		
+				motor_state = MOTOR_STOP;
+			key_state = KEY_STOP;			
+			//_delay_ms(20);		
+		}
+		else if((value<=SW3_H)&&(value>=SW3_L)) //check sw3 - reverse
+		{
+			if(key_state == KEY_OPEN)
+			{
+				if(direction) direction = 0;
+				else direction = 1;
+			}
+			key_state = KEY_REVERSE;				
+			//_delay_ms(20);		
+		}
+		else // maybe open
+		{
+			key_state = KEY_OPEN;		
+		}
+		
+		setup_motor(motor_state, speed, direction);
+		if(pulses >= PULSES_PER_REV)
+		{
+			millies = get_millies();
+			
+			disp_value = 60000/(millies - old_millies);
+			set_7seg(disp_value, 0, 0);			
+			old_millies = millies;
+			pulses = 0;
+		}
+		stop_cnt++;
+		if(stop_cnt > 5000){
+			disp_value = 0;
+			set_7seg(disp_value, 0, 0);						
+		}
+	}
+}
+
+void setup_motor(uint8_t state, uint8_t speed, uint8_t direction)
+{
+	if(state == MOTOR_STOP){
+		OCR2A = 0;
+		OCR2B = 0;		
+	}
+	else if(direction){
+		OCR2A = 0;
+		OCR2B = speed;		
+	}else{
+		OCR2A = speed;
+		OCR2B = 0;		
+	}
+}
+
+
+uint8_t adc_read(uint8_t channel)
+{
+	uint8_t	adch;
+	
+	if(channel > 7)
+		return 0;
+
+	ADMUX = (1<<REFS0)|(1<<ADLAR)|channel;
+	// start single conversion
+	ADCSRA |= (1<<ADSC);
+	// wait for conversion end
+	while (!(ADCSRA & (1<<ADIF)));
+	// clear ADC interrupt flag
+	ADCSRA |= (1<<ADIF);
+	// read left justified 8bit
+	adch = ADCH;
+
+	return adch;
+}
+
+
