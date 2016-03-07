@@ -26,7 +26,7 @@ void show_help(char *c_ln);
 
 extern void kp_ang(uint8_t angle);
 extern void ki_ang(uint8_t angle);
-extern void kd_ang(uint8_t angle);
+extern void kd_ang(void);
 extern void kpi_ang(uint8_t angle);
 extern void kpid_ang(uint8_t angle);
 
@@ -40,6 +40,8 @@ void cmd_kpid_ang(char *c_ln);
 void cmd_set_kp(char *c_ln);
 void cmd_set_ki(char *c_ln);
 void cmd_set_kd(char *c_ln);
+void cmd_led(char *c_ln);
+void cmd_pwm(char *c_ln);
 
 const CMD_TBL cmd_tbl[] =
 {
@@ -52,10 +54,30 @@ const CMD_TBL cmd_tbl[] =
 	{"kd", cmd_kd_ang},
 	{"kpi", cmd_kpi_ang},
 	{"kpid", cmd_kpid_ang},
+	{"pwm", cmd_pwm},
+	{"led", cmd_led},
     {"help", show_help},
     {"?", show_help},
     {0, 0}
 };
+
+void cmd_led(char *c_ln)
+{
+	char str[MAXCMDLEN];
+	int param;
+	uint16_t value;
+	
+	get_token(c_ln, str);
+	if(str[0]!=0)
+	{
+		if(strcmp("on", str)==0){
+			printf("led on\n");
+		}
+		else if(strcmp("off", str)==0){
+			printf("led off\n");		
+		}
+	}
+}
 
 void cmd_read_adc(char *c_ln)
 {
@@ -78,16 +100,17 @@ void cmd_read_adc(char *c_ln)
 
 void cmd_pwm(char *c_ln)
 {
-	char str_pwm[MAXCMDLEN];
+	char str[MAXCMDLEN];
 	int pwm;
-	int i;
 	
-	get_token(c_ln, str_pwm);
+	get_token(c_ln, str);
 
-	if(str_pwm[0]!=0)
+	if(str[0]!=0)
 	{
-		if(sscanf(str_pwm,"%d", &pwm)==1)
-			set_pwm(pwm);
+		if(sscanf(str,"%d", &pwm)==1){
+			if((pwm >= 0)&&(pwm<=255))	
+				set_pwm(pwm);
+		}
 	}
 }
 
@@ -180,22 +203,7 @@ void cmd_ki_ang(char *c_ln)
 
 void cmd_kd_ang(char *c_ln)
 {
-	char str_ang[MAXCMDLEN];
-	int ang;
-	int i;
-	
-	get_token(c_ln, str_ang);
-
-	if(str_ang[0]!=0)
-	{
-		if(sscanf(str_ang,"%d", &ang)==1)
-		{
-			printf("angle:%d\n",ang);
-			if((ang >= 0)&&(ang<=180)){
-				kd_ang(ang+50); //0-180 to 60-240
-			}
-		}
-	}
+	kd_ang(); 
 }
 
 void cmd_kpi_ang(char *c_ln)

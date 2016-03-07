@@ -6,8 +6,10 @@
  */ 
 
 #include <stdio.h>
+#include <stdbool.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
+
 #define F_CPU     18432000L
 #include <util/delay.h>
 #include "uart.h"
@@ -15,9 +17,10 @@
 
 extern void cmd_loop(void);
 extern uint32_t get_ms(void);
-float kp = 4.0;
+
+float kp = 1.0;
 float ki = 0.1;
-float kd = 1.0;
+float kd = 0.3;
 
 int main(void)
 {
@@ -92,6 +95,7 @@ void kp_ang(uint8_t angle) // input angle 60-240
 		if(pwm > 255.0) pwm = 255.0;
 		else if (pwm <-256.0) pwm = -255.0;
 		
+		// limit angle 0-180
 		if(((current < 190)&&(pwm < 0))||((current > 940)&&(pwm > 0)))
 			set_pwm(0);
 		else
@@ -108,16 +112,14 @@ void kp_ang(uint8_t angle) // input angle 60-240
 void ki_ang(uint8_t angle) // input angle 60-240
 {
 	int target, current;
-	int error;
-	float diff_err, time_diff;
-	float ki_err;
+	int error, old_error = 0;
+	float time_diff;
+	float ki_err, accum_err = 0.0;
 	float pwm;
-	float accum_err = 0.0;
-	int cnt = 0;
-	uint32_t last_time=0;
+	uint32_t last_time;
 	uint32_t curr_time;
+	int cnt = 0;
 
-	// y = 1023*x/300
 	target = (int)(1023.0*(float)angle/260.0);
 	last_time = get_ms();
 	
@@ -125,7 +127,6 @@ void ki_ang(uint8_t angle) // input angle 60-240
 		current = adc_read(0);
 		curr_time = get_ms();			
 		time_diff = (float)(curr_time - last_time);
-		
 		error = target - current;
 		accum_err += (float)error * time_diff * 0.001 ;
 		ki_err = ki*accum_err;
@@ -134,14 +135,20 @@ void ki_ang(uint8_t angle) // input angle 60-240
 		if(pwm > 255.0) pwm = 255.0;
 		else if (pwm <-256.0) pwm = -255.0;
 		
-		if(((current < 190)&&(pwm < 0))||((current > 940)&&(pwm > 0)))
-			set_pwm(0);
-		else
-			set_pwm((int)pwm);
+		if(old_error != 0)
+		{
+			// stop on error direction change for safety 
+			if(((error >= 0)&&(old_error < 0))||((error <= 0)&&(old_error > 0)))
+				break;
+			else
+				set_pwm((int)pwm);
+		}		
+			
+		old_error = error;
 		
 		if((cnt%50)==0)
-		printf("tar:%d, cur:%d, err:%d, acc_e:%lf, ki_e:%lf, pwm:%lf, td:%lf\n", 
-			target, current, error, accum_err, ki_err, pwm, time_diff);
+			printf("tar:%d, cur:%d, err:%d, acc_e:%lf, ki_e:%lf, pwm:%lf, td:%lf\n", 
+				target, current, error, accum_err, ki_err, pwm, time_diff);
 		cnt++;
 		last_time = curr_time;
 		_delay_ms(10);
@@ -149,24 +156,23 @@ void ki_ang(uint8_t angle) // input angle 60-240
 	set_pwm(0);
 }
 
-void kd_ang(uint8_t angle) // input angle 60-240
+void kd_ang(void)
 {
 	int target, current;
 	int error;
-	float d_err;
-	float kd_err;
-	float last_err = 0;
+	float d_err, kd_err, last_err = 0;
 	float time_diff;
 	float pwm;
 	int cnt = 0;
 	uint32_t last_time=0;
 	uint32_t curr_time;
 
-	// y = 1023*x/300
-	target = (int)(1023.0*(float)angle/260.0);
 	last_time = get_ms();
 	
 	while(!uart_kbhit()){
+		target = adc_read(1);			
+		// change 0-1023 to 190-940
+		target = (int)(0.73*(float)target);
 		current = adc_read(0);
 		curr_time = get_ms();
 		time_diff = (float)(curr_time - last_time);
@@ -199,7 +205,7 @@ void kpi_ang(uint8_t angle) // input angle 60-240
 {
 	int target, current;
 	int error;
-	float diff_err, time_diff;
+	float time_diff;
 	float kp_err, ki_err;
 	float pwm;
 	float accum_err = 0.0;
@@ -212,7 +218,7 @@ void kpi_ang(uint8_t angle) // input angle 60-240
 	last_time = get_ms();
 	
 	while(!uart_kbhit()){
-		current = adc_read(0);
+		current = (adc_read(0)/4)*4;
 		curr_time = get_ms();
 		time_diff = (float)(curr_time - last_time);
 		
@@ -244,7 +250,7 @@ void kpid_ang(uint8_t angle) // input angle 60-240
 {
 	int target, current;
 	int error;
-	float diff_err, time_diff;
+	float time_diff;
 	float kp_err, ki_err, kd_err;
 	float pwm;
 	float accum_err = 0.0;
@@ -259,7 +265,7 @@ void kpid_ang(uint8_t angle) // input angle 60-240
 	last_time = get_ms();
 	
 	while(!uart_kbhit()){
-		current = adc_read(0);
+		current = (adc_read(0)/4)*4;
 		curr_time = get_ms();
 		time_diff = (float)(curr_time - last_time);
 		
@@ -283,7 +289,7 @@ void kpid_ang(uint8_t angle) // input angle 60-240
 		
 		if((cnt%50)==0)
 			printf("tar:%d, cur:%d, err:%d, acc_e:%lf, d_e:%lf, kp_e:%lf, ki_e:%lf, kd_e:%lf, pwm:%lf, td:%lf\n",
-		target, current, error, accum_err, d_err, kp_err, ki_err, pwm, time_diff);
+					target, current, error, accum_err, d_err, kp_err, ki_err, kd_err, pwm, time_diff);
 		cnt++;
 		last_time = curr_time;
 		last_err = error;		
