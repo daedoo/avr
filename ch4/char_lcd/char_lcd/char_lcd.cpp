@@ -139,14 +139,16 @@ void scroll(void)
 
 void serial(void)
 {
-	char buf[64];
+	char buf[32];
 	
-		
+	lcd.clear();	
 	while(1){
-		lcd.clear();
-		lcd.setCursor(0,0);		
 		if (fgets(buf, sizeof buf, stdin) == NULL)
 			break;
+		lcd.clear();
+		lcd.setCursor(0,0);
+		// clear CR
+		buf[strlen(buf)-1] = '\0';
 		lcd.printf("%s", buf);
 		if(strcmp(buf,"exit")==0)
 			break;				
