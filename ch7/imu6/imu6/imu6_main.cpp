@@ -15,6 +15,9 @@
 #include "i2c.h"
 #include "MPU6050_6AXIS_MOTIONAPPS20.h"
 
+//#define OUTPUT_READABLE_YAWPITCHROLL
+#define OUTPUT_TEAPOT
+
 extern "C" void cmd_loop(void);
 
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
@@ -107,10 +110,12 @@ int main(void)
 	uint8_t recv[2];
 	uint8_t byts = 0;
 	uint32_t cmd_ms;
+	int count = 0;
 
 	while(1){
 		if(mpuInterrupt || fifoCount >= packetSize)		
 		{
+			count++;
 			// reset interrupt flag and get INT_STATUS byte
 			mpuInterrupt = false;
 			mpuIntStatus = mpu.getIntStatus();
@@ -136,11 +141,33 @@ int main(void)
 				// (this lets us immediately read more without waiting for an interrupt)
 				fifoCount -= packetSize;			
 				
+			    // display quaternion values in InvenSense Teapot demo format:
+			    teapotPacket[2] = fifoBuffer[0];
+			    teapotPacket[3] = fifoBuffer[1];
+			    teapotPacket[4] = fifoBuffer[4];
+			    teapotPacket[5] = fifoBuffer[5];
+			    teapotPacket[6] = fifoBuffer[8];
+			    teapotPacket[7] = fifoBuffer[9];
+			    teapotPacket[8] = fifoBuffer[12];
+			    teapotPacket[9] = fifoBuffer[13];
+			    teapotPacket[11]++; // packetCount, loops at 0xFF on purpose
+
+#ifdef OUTPUT_READABLE_YAWPITCHROLL
+				if((count%100)==0)
+					printf("%d %d %d %d %d %d %d %d\n", teapotPacket[2],teapotPacket[3],
+						teapotPacket[4],teapotPacket[5],teapotPacket[6],teapotPacket[7],teapotPacket[8],teapotPacket[9]);
+
 				mpu.dmpGetQuaternion(&q, fifoBuffer);
 				mpu.dmpGetGravity(&gravity, &q);
-				mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);		
-				
-				printf("ypr\t %lf\t%lf\t%lf\n", ypr[0] * 180.0/M_PI, ypr[1] * 180/M_PI, ypr[2] * 180/M_PI);					
+				mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
+				if((count%100)==0)
+					printf("ypr\t %lf\t%lf\t%lf\n", ypr[0] * 180.0/M_PI, ypr[1] * 180/M_PI, ypr[2] * 180/M_PI);
+				#endif
+
+#ifdef OUTPUT_TEAPOT
+				for(int i=0; i<14; i++)
+					uart_putchar(teapotPacket[i]);
+#endif
 			}
 		}
 	}
