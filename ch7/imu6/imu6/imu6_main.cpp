@@ -15,8 +15,8 @@
 #include "i2c.h"
 #include "MPU6050_6AXIS_MOTIONAPPS20.h"
 
-//#define OUTPUT_READABLE_YAWPITCHROLL
-#define OUTPUT_TEAPOT
+#define OUTPUT_READABLE_YAWPITCHROLL
+//#define OUTPUT_TEAPOT
 
 extern "C" void cmd_loop(void);
 
